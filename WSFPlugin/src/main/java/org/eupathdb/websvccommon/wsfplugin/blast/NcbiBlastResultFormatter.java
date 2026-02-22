@@ -162,11 +162,16 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       // Note: Ortho does not have organism info in defline; null is the expected return value
       int[] organismRange = findOrganism(defline);
 
+      String projectId = model.getProjectId();
+      /* FIXME: Project ID lookups don't currently work and with the new "portal" we can maybe just
+       * always use the site's project ID to generate URLs to gene pages and JBrowse on the current site.
+       *    SHOULD CONFIRM THIS IS THE CASE!
       String projectId = model.getProjectId().equals("OrthoMCL")
           ? "OrthoMCL"
           : organismRange == null
           ? "none"
           : getProject(getField(defline, organismRange)); // look up project ID by organism
+      */
 
       // get the source id in the alignment, and insert a link there
       int[] sourceIdLocation = findSourceId(alignment);

@@ -103,7 +103,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
   }
 
   protected static boolean isPortal(WdkModel wdkModel) {
-    return wdkModel.getProjectId().equals("EuPathDB");
+    return wdkModel.getProjectId().equals("UniDB");
   }
 
   protected static String getIdUrl(WdkModel wdkModel, String recordClassFullName, String projectId, String sourceId) throws WdkModelException {

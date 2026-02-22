@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 
 import org.apache.log4j.Logger;
-import org.eupathdb.common.model.ProjectMapper;
+//import org.eupathdb.common.model.ProjectMapper;
 import org.eupathdb.websvccommon.wsfplugin.EuPathServiceException;
 import org.gusdb.fgputil.FormatUtil;
 import org.gusdb.wdk.model.WdkModel;
@@ -160,18 +160,14 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       String defline = alignment.substring(0, alignment.indexOf("Length="));
 
       // Note: Ortho does not have organism info in defline; null is the expected return value
-      //int[] organismRange = findOrganism(defline);
+      int[] organismRange = findOrganism(defline);
 
-      String projectId = model.getProjectId();
-      /* FIXME: Project ID lookups don't currently work and with the new "portal" we can maybe just
-       * always use the site's project ID to generate URLs to gene pages and JBrowse on the current site.
-       *    SHOULD CONFIRM THIS IS THE CASE!
+      // Project ID mapping no longer needed, the links with local project will work 
       String projectId = model.getProjectId().equals("OrthoMCL")
           ? "OrthoMCL"
           : organismRange == null
           ? "none"
-          : getProject(getField(defline, organismRange)); // look up project ID by organism
-      */
+          : model.getProjectId();
 
       // get the source id in the alignment, and insert a link there
       int[] sourceIdLocation = findSourceId(alignment);
@@ -227,19 +223,11 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       // check if any subject has been found
       if (min <= max) {
         Map<String, String> props = model.getProperties();
-        boolean isPortal = isPortal(model);
-        // NOTE: current format of JBROWSE props below is:
-        //   JBROWSE_SERVICE_URL=/eupathdb.rdoherty/service/jbrowse
-        //   JBROWSE_WEBPAGE_URL=/eupathdb.rdoherty/app/jbrowse
-        // If this changes then portal JBrowse links will stop working
-        String webappUrl = isPortal ?
-            ProjectMapper.getMapper(model).getWebAppUrl(projectId) :
+        String webappUrl = 
             props.get("LEGACY_WEBAPP_BASE_URL");
-        String jbrowseUrl = isPortal ?
-            webappUrl + "app/jbrowse" :
+        String jbrowseUrl = 
             props.get("JBROWSE_WEBPAGE_URL");
-        String jbrowseServiceUrl = isPortal ?
-            webappUrl + "service/jbrowse" :
+        String jbrowseServiceUrl = 
             props.get("JBROWSE_SERVICE_URL");
         jbrowseUrl += "?data=" + jbrowseServiceUrl + "/bySequenceId/" + sourceId +
             "/&loc=" + sourceId + ":" + min + "-" + max + "&tracks=gene";

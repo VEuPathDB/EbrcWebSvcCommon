@@ -160,7 +160,7 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       String defline = alignment.substring(0, alignment.indexOf("Length="));
 
       // Note: Ortho does not have organism info in defline; null is the expected return value
-      int[] organismRange = findOrganism(defline);
+      //int[] organismRange = findOrganism(defline);
 
       String projectId = model.getProjectId();
       /* FIXME: Project ID lookups don't currently work and with the new "portal" we can maybe just

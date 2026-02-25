@@ -18,7 +18,6 @@ import org.apache.log4j.Logger;
 import org.eupathdb.websvccommon.wsfplugin.EuPathServiceException;
 import org.gusdb.fgputil.FormatUtil;
 import org.gusdb.wdk.model.WdkModel;
-import org.gusdb.wdk.model.WdkModelException;
 import org.gusdb.wdk.model.record.RecordClass;
 import org.gusdb.wsf.plugin.PluginModelException;
 import org.gusdb.wsf.plugin.PluginResponse;
@@ -155,51 +154,46 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
 
   protected void processAlignment(PluginResponse response, String[] columns, RecordClass recordClass, String dbType,
       Map<String, String> summaries, String alignment, WdkModel model) throws PluginUserException, PluginModelException {
-    try {
-      // get the defline, and get organism from it
-      String defline = alignment.substring(0, alignment.indexOf("Length="));
+    // get the defline, and get organism from it
+    String defline = alignment.substring(0, alignment.indexOf("Length="));
 
-      // Note: Ortho does not have organism info in defline; null is the expected return value
-      int[] organismRange = findOrganism(defline);
+    // Note: Ortho does not have organism info in defline; null is the expected return value
+    int[] organismRange = findOrganism(defline);
 
-      // Project ID mapping no longer needed, the links with local project will work 
-      String projectId = model.getProjectId().equals("OrthoMCL")
-          ? "OrthoMCL"
-          : organismRange == null
-          ? "none"
-          : model.getProjectId();
+    // Project ID mapping no longer needed, the links with local project will work
+    String projectId = model.getProjectId().equals("OrthoMCL")
+        ? "OrthoMCL"
+        : organismRange == null
+        ? "none"
+        : model.getProjectId();
 
-      // get the source id in the alignment, and insert a link there
-      int[] sourceIdLocation = findSourceId(alignment);
-      String sourceId = getField(defline, sourceIdLocation);
-      String idUrl = getIdUrl(recordClass, projectId, sourceId, defline);
-      alignment = insertUrl(alignment, sourceIdLocation, idUrl, sourceId);
+    // get the source id in the alignment, and insert a link there
+    int[] sourceIdLocation = findSourceId(alignment);
+    String sourceId = getField(defline, sourceIdLocation);
+    String idUrl = getIdUrl(recordClass, projectId, sourceId, defline);
+    alignment = insertUrl(alignment, sourceIdLocation, idUrl, sourceId);
 
-      // get score and e-value from summary;
-      String summary = summaries.get(sourceId);
-      String evalue = getField(summary, findEvalue(summary));
-      int[] scoreLocation = findScore(summary);
-      float score = Float.valueOf(getField(summary, scoreLocation));
+    // get score and e-value from summary;
+    String summary = summaries.get(sourceId);
+    String evalue = getField(summary, findEvalue(summary));
+    int[] scoreLocation = findScore(summary);
+    float score = Float.valueOf(getField(summary, scoreLocation));
 
-      // insert a link to the alignment section - need to do it before the id link.
-      summary = insertUrl(summary, scoreLocation, "#" + sourceId);
-      // insert id url into the summary
-      summary = insertUrl(summary, findSourceId(summary), idUrl);
+    // insert a link to the alignment section - need to do it before the id link.
+    summary = insertUrl(summary, scoreLocation, "#" + sourceId);
+    // insert id url into the summary
+    summary = insertUrl(summary, findSourceId(summary), idUrl);
 
-      // insert the jbrowse link if the DB type is genome
-      if (dbType != null && dbType.equals(DB_TYPE_GENOME))
-        alignment = insertJbrowseLink(model, alignment, projectId, sourceId);
+    // insert the jbrowse link if the DB type is genome
+    if (dbType != null && dbType.equals(DB_TYPE_GENOME))
+      alignment = insertJbrowseLink(model, alignment, projectId, sourceId);
 
-      // format and write the row
-      String[] row = formatRow(columns, projectId, sourceId, summary, alignment, evalue, score, defline);
-      response.addRow(row);
-    }
-    catch (WdkModelException ex) {
-      throw new EuPathServiceException(ex);
-    }
+    // format and write the row
+    String[] row = formatRow(columns, projectId, sourceId, summary, alignment, evalue, score, defline);
+    response.addRow(row);
   }
 
-  private String insertJbrowseLink(WdkModel model, String alignment, String projectId, String sourceId) throws WdkModelException {
+  private String insertJbrowseLink(WdkModel model, String alignment, String projectId, String sourceId) {
     // logger.debug("insertJBrowseLink: alignment: ********\n" + alignment + "\n*******\n");
     StringBuilder buffer = new StringBuilder();
     String[] pieces = alignment.split("Strand=");
@@ -223,8 +217,6 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       // check if any subject has been found
       if (min <= max) {
         Map<String, String> props = model.getProperties();
-        String webappUrl = 
-            props.get("LEGACY_WEBAPP_BASE_URL");
         String jbrowseUrl = 
             props.get("JBROWSE_WEBPAGE_URL");
         String jbrowseServiceUrl = 

@@ -23,11 +23,13 @@ import javax.ws.rs.core.Response;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.log4j.Priority;
+import org.eupathdb.common.service.PostValidationUserException;
 import org.eupathdb.websvccommon.wsfplugin.PluginUtilities;
 import org.eupathdb.websvccommon.wsfplugin.solrsearch.SiteSearchUtil.SearchField;
 import org.gusdb.fgputil.ArrayUtil;
 import org.gusdb.fgputil.FormatUtil;
 import org.gusdb.fgputil.FormatUtil.Style;
+import org.gusdb.fgputil.client.ClientUtil;
 import org.gusdb.fgputil.functional.Functions;
 import org.gusdb.fgputil.json.JsonUtil;
 import org.gusdb.fgputil.web.MimeTypes;
@@ -102,6 +104,12 @@ public class EuPathSiteSearchPlugin extends AbstractPlugin {
       searchResponse = invocationBuilder.post(Entity.entity(requestBody.toString(), MediaType.APPLICATION_JSON));
 
       LOG.info("Received response from site search service with status: " + searchResponse.getStatus());
+      if (searchResponse.getStatus() == 400) {
+        // something wrong with our request; probably result size exceeded limit
+        String body = ClientUtil.readSmallResponseBody(searchResponse);
+        LOG.info("400 response from site search service with body: " + body);
+        throw new PostValidationUserException("Could not run site search; " + body);
+      }
 
       BufferedReader br = new BufferedReader(new InputStreamReader((InputStream)searchResponse.getEntity()));
       String line;

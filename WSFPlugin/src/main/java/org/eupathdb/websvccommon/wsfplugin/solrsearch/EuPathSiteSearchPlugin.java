@@ -108,36 +108,40 @@ public class EuPathSiteSearchPlugin extends AbstractPlugin {
         // something wrong with our request; probably result size exceeded limit
         String body = ClientUtil.readSmallResponseBody(searchResponse);
         LOG.info("400 response from site search service with body: " + body);
-        throw new PostValidationUserException("Could not run site search; " + body);
+        throw new PostValidationUserException("Could not fetch site search result. " + body);
       }
 
-      BufferedReader br = new BufferedReader(new InputStreamReader((InputStream)searchResponse.getEntity()));
-      String line;
-      RecordClass recordClass = PluginUtilities.getRecordClass(request);
-      boolean pkHasProjectId = recordClass.getPrimaryKeyDefinition().hasColumn("project_id");
-      Priority recordLoggingPriority = Level.DEBUG;
-      boolean logRecordProcessing = LOG.isEnabledFor(recordLoggingPriority);
-      while ((line = br.readLine()) != null) {
-        if (logRecordProcessing) LOG.log(recordLoggingPriority,
-          "Site Search Service response line: " + line);
-        String[] tokens = line.split(FormatUtil.TAB);
-        if (tokens.length < 2 || tokens.length > 3) {
-          throw new PluginModelException("Unexpected format in line: " + line);
+      try (BufferedReader br = new BufferedReader(new InputStreamReader((InputStream)searchResponse.getEntity()))) {
+        String line;
+        RecordClass recordClass = PluginUtilities.getRecordClass(request);
+        boolean pkHasProjectId = recordClass.getPrimaryKeyDefinition().hasColumn("project_id");
+        Priority recordLoggingPriority = Level.DEBUG;
+        boolean logRecordProcessing = LOG.isEnabledFor(recordLoggingPriority);
+        while ((line = br.readLine()) != null) {
+          if (logRecordProcessing) LOG.log(recordLoggingPriority,
+            "Site Search Service response line: " + line);
+          String[] tokens = line.split(FormatUtil.TAB);
+          if (tokens.length < 2 || tokens.length > 3) {
+            throw new PluginModelException("Unexpected format in line: " + line);
+          }
+          JSONArray primaryKey = new JSONArray(tokens[0]);
+          String score = tokens[1];
+          Optional<String> solrRecordProjectId = tokens.length == 3 && !tokens[2].isBlank() ?
+              Optional.of(tokens[2].trim()) : Optional.empty();
+          String recordProjectId = computeRecordProjectId(solrRecordProjectId, primaryKey, request);
+
+          // build WSF plugin result row from parsed site search row
+          String[] row = readResultRow(recordClass, primaryKey, pkHasProjectId, recordProjectId, score);
+
+          if (logRecordProcessing) LOG.log(recordLoggingPriority,
+            "Returning row (project ID appended? " + solrRecordProjectId.isEmpty() + "): " + new JSONArray(row).toString());
+          response.addRow(row);
         }
-        JSONArray primaryKey = new JSONArray(tokens[0]);
-        String score = tokens[1];
-        Optional<String> solrRecordProjectId = tokens.length == 3 && !tokens[2].isBlank() ?
-            Optional.of(tokens[2].trim()) : Optional.empty();
-        String recordProjectId = computeRecordProjectId(solrRecordProjectId, primaryKey, request);
-
-        // build WSF plugin result row from parsed site search row
-        String[] row = readResultRow(recordClass, primaryKey, pkHasProjectId, recordProjectId, score);
-
-        if (logRecordProcessing) LOG.log(recordLoggingPriority,
-          "Returning row (project ID appended? " + solrRecordProjectId.isEmpty() + "): " + new JSONArray(row).toString());
-        response.addRow(row);
+        return 0;
       }
-      return 0;
+    }
+    catch (PostValidationUserException e) {
+      throw e;
     }
     catch (Exception e) {
       throw new PluginModelException("Could not read response from site search service", e);

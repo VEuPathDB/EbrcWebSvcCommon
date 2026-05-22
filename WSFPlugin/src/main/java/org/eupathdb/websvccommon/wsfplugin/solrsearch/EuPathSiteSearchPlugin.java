@@ -111,7 +111,9 @@ public class EuPathSiteSearchPlugin extends AbstractPlugin {
         throw new PostValidationUserException("Could not fetch site search result. " + body);
       }
 
-      try (BufferedReader br = new BufferedReader(new InputStreamReader((InputStream)searchResponse.getEntity()))) {
+      try (InputStream in = (InputStream)searchResponse.getEntity();
+           InputStreamReader isr = new InputStreamReader(in);
+           BufferedReader br = new BufferedReader(isr)) {
         String line;
         RecordClass recordClass = PluginUtilities.getRecordClass(request);
         boolean pkHasProjectId = recordClass.getPrimaryKeyDefinition().hasColumn("project_id");

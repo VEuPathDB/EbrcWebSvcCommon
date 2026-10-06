@@ -8,6 +8,8 @@ import org.veupathdb.lib.blast.field.*;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class MBlastJobConfig {
+  // Static strings for cases where Jackson might not name the json property
+  // correctly on its own.
   public static final String
     JSON_KEY_MAX_HSPS          = "maxHSPs"
   , JSON_KEY_EXPECT_VALUE      = "eValue"

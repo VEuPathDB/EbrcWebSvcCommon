@@ -1,11 +1,15 @@
 package org.eupathdb.websvccommon.wsfplugin.blast;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSetter;
 
 import java.util.List;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class MBlastJobRequest {
+  // Static strings for cases where Jackson might not name the json property
+  // correctly on its own.
   public static final String
     JSON_KEY_IS_PRIMARY = "isPrimary";
 

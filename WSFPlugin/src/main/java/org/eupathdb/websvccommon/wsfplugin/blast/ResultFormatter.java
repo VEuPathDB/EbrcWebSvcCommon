@@ -20,17 +20,8 @@ public interface ResultFormatter {
   /**
    * Format the result into the response, and return the message which can be
    * passed to the client.
-   * 
-   * @param response
-   * @param orderedColumns
-   * @param resultStream
-   * @param recordClass
-   * @param dbType
-   * @return
-   * @throws WsfException 
    */
   String formatResult(PluginResponse response, String[] orderedColumns,
       InputStream resultStream, RecordClass recordClass, String dbType, WdkModel wdkModel)
       throws PluginModelException, PluginUserException;
-
 }

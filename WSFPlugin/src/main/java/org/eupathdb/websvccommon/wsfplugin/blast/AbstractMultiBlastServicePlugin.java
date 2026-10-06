@@ -8,6 +8,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
 
 import javax.ws.rs.core.HttpHeaders;
@@ -128,7 +129,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
       .setMaxSequences(1)
       .setPrimary(false)
       .setConfig(buildNewBlastConfig(request.getParams()))
-      .setTargets(MultiBlastServiceParams.buildNewJobRequestTargetJson(request.getParams()));
+      .setTargets(buildBlastTargetList(request.getParams()));
 
     String jobId = createJob(newJobRequestJson, multiBlastServiceUrl, authHeader);
 
@@ -182,7 +183,11 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
   }
 
   protected MBlastJobConfig buildNewBlastConfig(Map<String, String> params) throws PluginUserException {
-    return MultiBlastServiceParams.buildNewJobRequestConfigJson(params);
+    return MultiBlastServiceParams.buildNewJobRequestConfig(params);
+  }
+
+  protected List<MBlastJobRequest.JobTarget> buildBlastTargetList(Map<String, String> params) {
+    return MultiBlastServiceParams.buildNewJobRequestTargetList(params);
   }
 
   private void writeResults(

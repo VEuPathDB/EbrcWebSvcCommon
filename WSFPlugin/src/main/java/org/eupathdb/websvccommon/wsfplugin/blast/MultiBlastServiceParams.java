@@ -83,7 +83,7 @@ public class MultiBlastServiceParams {
    * @param params internal values of params
    * @return json object to be passed as "config" to multi-blast service
    */
-  public static MBlastJobConfig buildNewJobRequestConfigJson(Map<String, String> params) throws PluginUserException {
+  public static MBlastJobConfig buildNewJobRequestConfig(Map<String, String> params) throws PluginUserException {
     LOG.info("Converting the following param values to JSON: " + FormatUtil.prettyPrint(params, Style.MULTI_LINE));
 
     var selectedTool = Objects.requireNonNull(ifParamNotNull(params, BLAST_ALGORITHM_PARAM_NAME, BlastTool::fromString));
@@ -136,7 +136,7 @@ public class MultiBlastServiceParams {
    * @param params internal values of params
    * @return json array to be passed as "targets" to multi-blast service
    */
-  public static List<MBlastJobRequest.JobTarget> buildNewJobRequestTargetJson(Map<String, String> params) {
+  public static List<MBlastJobRequest.JobTarget> buildNewJobRequestTargetList(Map<String, String> params) {
     var organismsStr = params.get(BLAST_DATABASE_ORGANISM_PARAM_NAME);
     var wdkTargetType = params.get(BLAST_DATABASE_TYPE_PARAM_NAME);
 

@@ -145,7 +145,7 @@ public class MultiBlastServiceParams {
     // FIXME This is a carryover of some hardcoding from
     // ApiCommonWebService's EuPathBlastCommandFormatter.
     // We should explore more permanent solutions.
-    var blastTargetType = wdkTargetType.equals("PopSet")
+    var blastTargetType = "PopSet".equals(wdkTargetType)
       ? "Isolates"
       : wdkTargetType;
 

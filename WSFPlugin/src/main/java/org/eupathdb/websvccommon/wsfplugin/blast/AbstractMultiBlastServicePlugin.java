@@ -366,7 +366,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     var jobsEndpointUrl = multiBlastServiceUrl + "/jobs";
     var requestBody = JsonUtil.toJsonNode(newJobRequestBody).toPrettyString();
 
-    LOG.info("Requesting new multi-blast job at {} with JSON body: {}", jobsEndpointUrl, newJobRequestBody);
+    LOG.info("Requesting new multi-blast job at {} with JSON body: {}", jobsEndpointUrl, requestBody);
 
     // make new job request
     try {
@@ -380,7 +380,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
       );
 
       if (response.statusCode() == 200)
-        return getString(Jackson.readTree(response.body()), "jobId");
+        return getString(Jackson.readTree(response.body()), "jobID");
 
       if (isClientError(response))
         throw new BlastServiceBadRequestException(

@@ -364,7 +364,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     TwoTuple<String,String> authHeader
   ) throws PluginModelException {
     var jobsEndpointUrl = multiBlastServiceUrl + "/jobs";
-    var requestBody = JsonUtil.toJsonNode(newJobRequestBody).toPrettyString();
+    var requestBody = JsonUtil.toJsonNode(newJobRequestBody).toString();
 
     LOG.info("Requesting new multi-blast job at {} with JSON body: {}", jobsEndpointUrl, requestBody);
 
@@ -405,7 +405,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     TwoTuple<String,String> authHeader
   ) throws PluginModelException {
     var reportsEndpointUrl = multiBlastServiceUrl + "/reports";
-    var requestBody = newReportRequestBody.toString();
+    var requestBody = JsonUtil.toJsonNode(newReportRequestBody).toString();
 
     LOG.info(
       "Requesting new multi-blast report at {} with JSON body: {}",

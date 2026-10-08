@@ -1,6 +1,7 @@
 package org.eupathdb.websvccommon.wsfplugin.blast;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import org.veupathdb.lib.blast.field.FormatType;
 
 import javax.validation.constraints.NotNull;
 
@@ -10,8 +11,8 @@ public class MBlastReportRequest {
 
   private final String jobId;
   private String description;
-  private BlastReportFormat format;
-  private String            fieldDelim;
+  private BlastReportFormat.FormatType format;
+  private String fieldDelim;
 
   public MBlastReportRequest(@NotNull String jobId) {
     this.jobId = jobId;
@@ -31,12 +32,12 @@ public class MBlastReportRequest {
     return this;
   }
 
-  public BlastReportFormat getFormat() {
+  public BlastReportFormat.FormatType getFormat() {
     return format;
   }
 
-  public MBlastReportRequest setFormat(BlastReportFormat format) {
-    this.format = format;
+  public MBlastReportRequest setFormat(FormatType format) {
+    this.format = BlastReportFormat.FormatType.fromFormat(format);
     return this;
   }
 

@@ -5,10 +5,10 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 public record BlastReportFormat(@JsonProperty FormatType format) {
   public BlastReportFormat(org.veupathdb.lib.blast.field.FormatType format) {
-    this(FormatType.values()[format.ordinal()]);
+    this(FormatType.fromFormat(format));
   }
 
-  enum FormatType {
+  public enum FormatType {
     Pairwise("pairwise"),
     QueryAnchoredWithIdentities("query-anchored-with-identities"),
     QueryAnchoredWithoutIdentities("query-anchored-without-identities"),
@@ -38,6 +38,10 @@ public record BlastReportFormat(@JsonProperty FormatType format) {
     @JsonValue
     public String getJsonName() {
       return jsonName;
+    }
+
+    public static FormatType fromFormat(org.veupathdb.lib.blast.field.FormatType format) {
+      return values()[format.ordinal()];
     }
   }
 }

@@ -154,7 +154,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
 
     // create a new "pairwise" report for this job
     var newReportRequestJson = new MBlastReportRequest(jobId)
-      .setFormat(new BlastReportFormat(FormatType.Pairwise));
+      .setFormat(FormatType.Pairwise);
 
     String reportId = createReport(newReportRequestJson, multiBlastServiceUrl, authHeader);
 

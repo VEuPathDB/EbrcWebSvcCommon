@@ -326,7 +326,9 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     try {
 
       var response = HTTP_CLIENT.send(
-        HttpRequest.newBuilder(URI.create(reportIdEndpointUrl)).build(),
+        HttpRequest.newBuilder(URI.create(reportIdEndpointUrl))
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
         HttpResponse.BodyHandlers.ofString()
       );
 

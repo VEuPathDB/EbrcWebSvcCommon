@@ -8,7 +8,8 @@ import java.io.PrintWriter;
 import java.util.Date;
 import java.util.Map;
 
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eupathdb.common.model.ProjectMapper;
 import org.eupathdb.common.service.PostValidationUserException;
 import org.eupathdb.websvccommon.wsfplugin.PluginUtilities;
@@ -44,7 +45,7 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
   // field definitions in the config file
   private static final String FILE_CONFIG = "blast-config.xml";
 
-  private static final Logger logger = Logger.getLogger(AbstractBlastPlugin.class);
+  private static final Logger logger = LogManager.getLogger(AbstractBlastPlugin.class);
 
   // ========== member variables ==========
   private final NcbiBlastCommandFormatter commandFormatter;
@@ -70,7 +71,7 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
   @Override
   public String[] getRequiredParameterNames() {
     return new String[] { PARAM_DATA_TYPE, PARAM_ALGORITHM, PARAM_SEQUENCE, PARAM_RECORD_CLASS,
-        PARAM_MAX_SUMMARY, PARAM_EVALUE };
+      PARAM_MAX_SUMMARY, PARAM_EVALUE };
   }
 
   @Override
@@ -82,13 +83,13 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
   public void validateParameters(PluginRequest request) {
     Map<String, String> params = request.getParams();
     for (String param : params.keySet()) {
-      logger.debug("Param - name=" + param + ", value=" + params.get(param));
+      logger.debug("Param - name={}, value={}", param, params.get(param));
     }
   }
 
   @Override
   public int execute(PluginRequest request, PluginResponse response) throws PluginModelException, PluginUserException {
-    logger.info("Invoking " + getClass().getSimpleName() + "...");
+    logger.info("Invoking {}...", getClass().getSimpleName());
 
     // create temporary files for input sequence and output report
     try {
@@ -107,11 +108,11 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
       long timeout = config.getTimeout();
       StringBuffer output = new StringBuffer();
       int signal = invokeCommand(command, output, timeout);
-      logger.debug("BLAST output: \n------\n" + output.toString() + "\n-----\n");
+      logger.debug("BLAST output: \n------\n{}\n-----\n", output.toString());
 
       // if the invocation succeeds, prepare the result; otherwise,
       // prepare results for failure scenario
-      logger.info("Preparing the result... Output File Size is: " + outFile.length() + "\n\n");
+      logger.info("Preparing the result... Output File Size is: {}\n\n", outFile.length());
       if (outFile.length() > MAX_OUTFILE_SIZE) {
         logger.error("Will not prepare Result, too big BYE\n");
         //response.setMessage("\n\n***** Sorry we cannot handle this big result, please repeat your BLAST using fewer results (parameter V=B) or a smaller sequence\n");
@@ -123,24 +124,24 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
       }
       else {
         RecordClass recordClass = PluginUtilities.getRecordClass(request);
-        logger.debug("*********recordclass is:" + recordClass + "\n");
+        logger.debug("*********recordclass is:{}\n", recordClass);
         try (FileInputStream outFileStream = new FileInputStream(outFile)) {
           String message = resultFormatter.formatResult(response, request.getOrderedColumns(), outFileStream, recordClass, dbType, wdkModel);
           logger.info("Result prepared BYE\n");
-          logger.debug("signal is:" + signal + "\n");
-          logger.debug("message is:" + message + "\n");
-  
-          response.setMessage(message + output.toString());
+          logger.debug("signal is:{}\n", signal);
+          logger.debug("message is:{}\n", message);
+
+          response.setMessage(message + output);
         }
       }
       return signal;
     }
     catch (IOException | WdkModelException ex) {
-      logger.error("IOException: " + ex);
+      logger.error("IOException: {}", String.valueOf(ex));
       throw new PluginModelException(ex);
     }
     catch (PluginTimeoutException ex) {
-      logger.error("PluginTimeoutException: " + ex);
+      logger.error("PluginTimeoutException: {}", String.valueOf(ex));
       throw new BlastResultProblemException(
           "The BLAST execution has timed out.  If this issue persists, it is " +
           "likely because the input sequence was too long, or too many target " +
@@ -156,7 +157,7 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
     String sequence = params.get(PARAM_SEQUENCE).trim();
 
     // may need to filter out certain character sequences; additional sequences should be added as needed
-    sequence = sequence.replaceAll("&#65532;", "");
+    sequence = sequence.replace("&#65532;", "");
 
     // check if the input contains multiple sequences
     if (sequence.indexOf('>', 1) > -1)
@@ -173,12 +174,17 @@ public abstract class AbstractBlastPlugin extends AbstractPlugin {
   }
 
   private void cleanup() {
-    long todayLong = new Date().getTime();
-    File tempDir = config.getTempDir();
+    var todayLong = new Date().getTime();
+    var tempFiles = config.getTempDir().listFiles();
+
+    if (tempFiles == null)
+      tempFiles = new File[0];
+
     // remove files older than a week (500000000)
-    for (File tempFile : tempDir.listFiles()) {
+    for (File tempFile : tempFiles) {
       if (tempFile.isFile() && tempFile.canWrite() && (todayLong - (tempFile.lastModified())) > 500000000) {
-        logger.info("Temp file to be deleted: " + tempFile.getAbsolutePath() + "\n");
+        logger.info("Temp file to be deleted: {}\n", tempFile.getAbsolutePath());
+        //noinspection ResultOfMethodCallIgnored
         tempFile.delete();
       }
     }

@@ -1,28 +1,30 @@
 package org.eupathdb.websvccommon.wsfplugin.blast;
 
 import static org.gusdb.fgputil.FormatUtil.NL;
+import static org.gusdb.fgputil.json.JsonUtil.Jackson;
 
 import java.io.IOException;
-import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
-import javax.ws.rs.core.Response.Status.Family;
+import javax.ws.rs.core.HttpHeaders;
 
-import org.apache.log4j.Logger;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eupathdb.common.model.MultiBlastServiceUtil;
 import org.eupathdb.common.model.ProjectMapper;
 import org.eupathdb.common.service.PostValidationUserException;
 import org.eupathdb.websvccommon.wsfplugin.PluginUtilities;
 import org.gusdb.fgputil.FormatUtil;
-import org.gusdb.fgputil.MapBuilder;
 import org.gusdb.fgputil.Timer;
 import org.gusdb.fgputil.Tuples.TwoTuple;
-import org.gusdb.fgputil.client.ClientUtil;
-import org.gusdb.fgputil.client.CloseableResponse;
 import org.gusdb.fgputil.json.JsonUtil;
 import org.gusdb.fgputil.runtime.ThreadUtil;
-import org.gusdb.fgputil.web.HttpMethod;
 import org.gusdb.wdk.model.Utilities;
 import org.gusdb.wdk.model.WdkModel;
 import org.gusdb.wdk.model.WdkModelException;
@@ -34,11 +36,12 @@ import org.gusdb.wsf.plugin.PluginModelException;
 import org.gusdb.wsf.plugin.PluginRequest;
 import org.gusdb.wsf.plugin.PluginResponse;
 import org.gusdb.wsf.plugin.PluginUserException;
-import org.json.JSONObject;
+import org.veupathdb.lib.blast.field.FormatType;
 
 public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
+  private static final Logger LOG = LogManager.getLogger(AbstractMultiBlastServicePlugin.class);
 
-  private static final Logger LOG = Logger.getLogger(AbstractMultiBlastServicePlugin.class);
+  protected static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
 
   private static final int INITIAL_WAIT_TIME_MILLIS = 2 /* seconds */ * 1000;
   private static final int POLLING_INTERVAL_MILLIS = 5 /* seconds */ * 1000;
@@ -86,8 +89,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
   public void validateParameters(PluginRequest request) throws PluginModelException, PluginUserException {
     // WDK handles most validation; simply confirm single submitted sequence
     String sequence = request.getParams().get(MultiBlastServiceParams.BLAST_QUERY_SEQUENCE_PARAM_NAME);
-    int firstIndex = sequence.indexOf('>');
-    if (firstIndex != -1 && sequence.indexOf('>', firstIndex + 1) != -1) {
+    if (sequence.indexOf('>') != sequence.lastIndexOf('>')) {
       // more than one sequence
       throw new PluginUserException("Only one sequence can be submitted at a time (should have been validated by StringParam regex).");
     }
@@ -105,7 +107,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
       ProjectMapper projectMapper = ProjectMapper.getMapper(wdkModel);
       _resultFormatter.setProjectMapper(projectMapper);
     } catch (WdkModelException ex) {
-      LOG.error("WdkModelException: " + ex);
+      LOG.error("WdkModelException: {}", String.valueOf(ex));
       throw new PluginModelException(ex);
     }
 
@@ -115,19 +117,19 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
 
     // find base URL for multi-blast service
     String multiBlastServiceUrl = MultiBlastServiceUtil.getMultiBlastServiceUrl(
-        PluginUtilities.getWdkModel(request), e -> new PluginModelException(e));
+        PluginUtilities.getWdkModel(request), PluginModelException::new);
 
     // retrieve project ID
     String projectId = wdkModel.getProjectId();
 
     // use passed params to POST new job request to blast service
-    JSONObject newJobRequestJson = new JSONObject()
-      .put("site", projectId)
-      .put("maxResultSize", 0)
-      .put("maxSequences", 1)
-      .put("isPrimary", false)
-      .put("config", MultiBlastServiceParams.buildNewJobRequestConfigJson(request.getParams()))
-      .put("targets", MultiBlastServiceParams.buildNewJobRequestTargetJson(request.getParams()));
+    var newJobRequestJson = new MBlastJobRequest()
+      .setSite(projectId)
+      .setMaxResultSize(0L)
+      .setMaxSequences(1)
+      .setPrimary(false)
+      .setConfig(buildNewBlastConfig(request.getParams()))
+      .setTargets(buildBlastTargetList(request.getParams()));
 
     String jobId = createJob(newJobRequestJson, multiBlastServiceUrl, authHeader);
 
@@ -137,13 +139,9 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     // wait a short interval for blast service to look job up in cache and assign complete status
     ThreadUtil.sleep(INITIAL_WAIT_TIME_MILLIS);
 
+    // query the job status (if results in cache, should return complete immediately)
     // keep going until job complete or max wait time expired
-    while (true) {
-
-      // query the job status (if results in cache, should return complete immediately)
-      if (isJobComplete(multiBlastServiceUrl, jobId, authHeader)) {
-        break;
-      }
+    while (!isJobComplete(multiBlastServiceUrl, jobId, authHeader)) {
 
       // if max wait time reached, throw delayed result exception
       if (t.getElapsed() > (MAX_WAIT_TIME_MILLIS)) {
@@ -155,19 +153,14 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     }
 
     // create a new "pairwise" report for this job
-    JSONObject newReportRequestJson = new JSONObject()
-      .put("jobID", jobId)
-      .put("format", "pairwise");
+    var newReportRequestJson = new MBlastReportRequest(jobId)
+      .setFormat(FormatType.Pairwise);
 
     String reportId = createReport(newReportRequestJson, multiBlastServiceUrl, authHeader);
 
+    // query the report status (if results in cache, should return complete immediately)
     // keep going until report complete or max wait time expired
-    while (true) {
-
-      // query the report status (if results in cache, should return complete immediately)
-      if (isReportComplete(multiBlastServiceUrl, reportId, authHeader)) {
-        break;
-      }
+    while (!isReportComplete(multiBlastServiceUrl, reportId, authHeader)) {
 
       // if max wait time reached, throw delayed result exception
       if (t.getElapsed() > (MAX_WAIT_TIME_MILLIS)) {
@@ -189,55 +182,74 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
     return 0;
   }
 
-  private void writeResults(String multiBlastServiceUrl, String reportId, TwoTuple<String,String> authHeader,
-      PluginResponse response, WdkModel wdkModel, RecordClass recordClass,
-      String dbType, String[] orderedColumns) throws PluginModelException, PluginUserException {
+  protected MBlastJobConfig buildNewBlastConfig(Map<String, String> params) throws PluginUserException {
+    return MultiBlastServiceParams.buildNewJobRequestConfig(params);
+  }
+
+  protected List<MBlastJobRequest.JobTarget> buildBlastTargetList(Map<String, String> params) {
+    return MultiBlastServiceParams.buildNewJobRequestTargetList(params);
+  }
+
+  private void writeResults(
+    String multiBlastServiceUrl,
+    String reportId,
+    TwoTuple<String,String> authHeader,
+    PluginResponse pluginResponse,
+    WdkModel wdkModel,
+    RecordClass recordClass,
+    String dbType,
+    String[] orderedColumns
+  ) throws PluginModelException, PluginUserException {
 
     // define request data
     String downloadReportUrl = multiBlastServiceUrl + "/reports/" + reportId + "/files/report.txt?download=false";
 
-    LOG.info("Requesting multi-blast report results at " + downloadReportUrl);
-
-    TwoTuple<String,String> contentMaxLengthHeader =
-      new TwoTuple<String, String>("Content-Max-Length", String.valueOf(MAX_REPORT_SIZE_BYTES));
-
-    Map<String,String> headers = new MapBuilder<String,String>(authHeader)
-      .put(contentMaxLengthHeader)
-      .toMap();
+    LOG.info("Requesting multi-blast report results at {}", downloadReportUrl);
 
     // make job report request
-    try (CloseableResponse downloadReportResponse = ClientUtil.makeRequest(
-        downloadReportUrl, HttpMethod.GET, Optional.empty(), headers)) {
+    try {
 
-      if (downloadReportResponse.getStatus() != 200) {
-        // error occurred; read entire body for error message
-        String responseBody = ClientUtil.readSmallResponseBody(downloadReportResponse);
+      var mblastResponse = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(downloadReportUrl))
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .header("Content-Max-Length", String.valueOf(MAX_REPORT_SIZE_BYTES))
+          .build(),
+        HttpResponse.BodyHandlers.ofInputStream()
+      );
 
-        JSONObject responseJson = new JSONObject(responseBody);
+      if (mblastResponse.statusCode() != 200) {
+        var responseJson = Jackson.readTree(mblastResponse.body());
 
         if (
-          JsonUtil.getStringOrDefault(responseJson, "status", "").equals(CONTENT_MAX_LENGTH_EXCEEDED_STATUS) &&
-          JsonUtil.getStringOrDefault(responseJson, "message", "").equals(CONTENT_MAX_LENGTH_EXCEEDED_MESSAGE)
+          CONTENT_MAX_LENGTH_EXCEEDED_STATUS.equals(getString(responseJson, "status")) &&
+          CONTENT_MAX_LENGTH_EXCEEDED_MESSAGE.equals(getString(responseJson, "message"))
         ) {
           throw new BlastServiceBadRequestException(
             "We're sorry, but we cannot handle BLAST results larger than " +
-            MAX_REPORT_SIZE_BYTES/1000000 + "MB. \nIf you see the option to download your result, you may do so. \nTo reduce the result size, you " +
-            "could decrease V=B or the Expectation value, turn on the Low " +
-            "Complexity filter, or decrease the number of target organisms selected.");
+              MAX_REPORT_SIZE_BYTES/1000000 + "MB. \nIf you see the option to download your result, you may do so. \nTo reduce the result size, you " +
+              "could decrease V=B or the Expectation value, turn on the Low " +
+              "Complexity filter, or decrease the number of target organisms selected.");
         }
 
         throw new PluginModelException("Unexpected response from multi-blast " +
-            "service while fetching report results (reportId=" + reportId + "): " +
-            downloadReportResponse.getStatus() + FormatUtil.NL + responseBody);
+          "service while fetching report results (reportId=" + reportId + "): " +
+          mblastResponse.statusCode() + FormatUtil.NL + responseJson);
       }
 
       // request appears to be successful; read, parse and write result stream data into plugin response
-      try (InputStream resultStream = (InputStream)downloadReportResponse.getEntity()) {
-        String message = _resultFormatter.formatResult(response, orderedColumns, resultStream, recordClass, dbType, wdkModel);
-        response.setMessage(message);
+      try (var resultStream = mblastResponse.body()) {
+        var message = _resultFormatter.formatResult(
+          pluginResponse,
+          orderedColumns,
+          resultStream,
+          recordClass,
+          dbType,
+          wdkModel
+        );
+        pluginResponse.setMessage(message);
       }
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
@@ -246,7 +258,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
    * Makes a request to the multi-blast service to check the status of the job
    * with the passed ID.  Returns whether job is complete or still running. If
    * job status is "errored", throws a PluginModelException with the description.
-   *
+   * <p>
    * NOTE: If the job if found to be "expired", it will be rerun
    *
    * @param multiBlastServiceUrl blast service base URL
@@ -256,39 +268,40 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
    */
   private static boolean isJobComplete(String multiBlastServiceUrl, String jobId, TwoTuple<String,String> authHeader) throws PluginModelException {
     String jobIdEndpointUrl = multiBlastServiceUrl + "/jobs/" + jobId;
-    LOG.info("Requesting multi-blast job status at " + jobIdEndpointUrl);
+    LOG.info("Requesting multi-blast job status at {}", jobIdEndpointUrl);
 
     // make job status request
-    try (CloseableResponse jobStatusResponse = ClientUtil.makeRequest(
-        jobIdEndpointUrl, HttpMethod.GET, Optional.empty(), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(jobIdEndpointUrl))
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
 
-      String responseBody = ClientUtil.readSmallResponseBody(jobStatusResponse);
-      if (jobStatusResponse.getStatus() != 200) {
+      if (response.statusCode() != 200)
         throw new PluginModelException("Unexpected response from multi-blast " +
-            "service while checking job status (jobId=" + jobId + "): " +
-            jobStatusResponse.getStatus() + FormatUtil.NL + responseBody);
-      }
+          "service while checking job status (jobId=" + jobId + "): " +
+          response.statusCode() + FormatUtil.NL + response.body());
 
       // parse response and analyze
-      JSONObject responseObj = new JSONObject(responseBody);
-      switch(responseObj.getString("status")) {
-        case "queued":
-        case "in-progress":
-          return false;
-        case "expired":
+
+      var responseObj = Jackson.readTree(response.body());
+      return switch (getString(responseObj, "status", "")) {
+        case "queued", "in-progress" -> false;
+        case "expired" -> {
           rerunJob(multiBlastServiceUrl, jobId, authHeader);
-          return false;
-        case "completed":
-          return true;
-        case "errored":
-          throw new PluginModelException(
-            "Multi-blast service job failed: " + responseObj.getString("description"));
-        default:
-          throw new PluginModelException(
-            "Multi-blast service job status endpoint returned unrecognized status value: " + responseObj.getString("status"));
-      }
+          yield false;
+        }
+        case "completed" -> true;
+        case "errored" -> throw new PluginModelException(
+          "Multi-blast service job failed: " + responseObj.get("description"));
+        default -> throw new PluginModelException(
+          "Multi-blast service job status endpoint returned unrecognized status value: " +
+          responseObj.get("status"));
+      };
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
@@ -297,7 +310,7 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
    * Makes a request to the multi-blast service to check the status of the report
    * with the passed ID.  Returns whether report is complete or still running. If
    * report status is "errored", throws a PluginModelException with the description.
-   *
+   * <p>
    * NOTE: If the report if found to be "expired", it will be rerun
    *
    * @param multiBlastServiceUrl blast service base URL
@@ -307,133 +320,179 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
    */
   private static boolean isReportComplete(String multiBlastServiceUrl, String reportId, TwoTuple<String,String> authHeader) throws PluginModelException {
     String reportIdEndpointUrl = multiBlastServiceUrl + "/reports/" + reportId;
-    LOG.info("Requesting multi-blast report status at " + reportIdEndpointUrl);
+    LOG.info("Requesting multi-blast report status at {}", reportIdEndpointUrl);
 
     // make job status request
-    try (CloseableResponse reportStatusResponse = ClientUtil.makeRequest(
-        reportIdEndpointUrl, HttpMethod.GET, Optional.empty(), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
 
-      String responseBody = ClientUtil.readSmallResponseBody(reportStatusResponse);
-      if (reportStatusResponse.getStatus() != 200) {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(reportIdEndpointUrl))
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
+
+      if (response.statusCode() != 200) {
         throw new PluginModelException("Unexpected response from multi-blast " +
-            "service while checking report status (reportId=" + reportId + "): " +
-            reportStatusResponse.getStatus() + FormatUtil.NL + responseBody);
+          "service while checking report status (reportId=" + reportId + "): " +
+          response.statusCode() + FormatUtil.NL + response.body());
       }
 
       // parse response and analyze
-      JSONObject responseObj = new JSONObject(responseBody);
-      switch(responseObj.getString("status")) {
-        case "queued":
-        case "in-progress":
-          return false;
-        case "expired":
+      var responseObj = Jackson.readTree(response.body());
+      return switch (getString(responseObj, "status", "")) {
+        case "queued", "in-progress" -> false;
+        case "expired" -> {
           rerunReport(multiBlastServiceUrl, reportId, authHeader);
-          return false;
-        case "completed":
-          return true;
-        case "errored":
-          throw new PluginModelException("Multi-blast service report failed. This is usually a temporary network problem, please try later. " +
-                                         "In the meantime if you see a Download dropdown menu, you might be able to get the result.");
-        default:
-          throw new PluginModelException(
-            "Multi-blast service report status endpoint returned unrecognized status value: " + responseObj.getString("status"));
-      }
+          yield false;
+        }
+        case "completed" -> true;
+        case "errored" -> throw new PluginModelException(
+          "Multi-blast service report failed. This is usually a temporary network problem, please try later. " +
+            "In the meantime if you see a Download dropdown menu, you might be able to get the result.");
+        default -> throw new PluginModelException(
+          "Multi-blast service report status endpoint returned unrecognized status value: " + responseObj.get(
+            "status"));
+      };
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
 
-  private static String createJob(JSONObject newJobRequestBody, String multiBlastServiceUrl, TwoTuple<String,String> authHeader) throws PluginModelException {
-    String jobsEndpointUrl = multiBlastServiceUrl + "/jobs";
-    LOG.info("Requesting new multi-blast job at " + jobsEndpointUrl + " with JSON body: " + newJobRequestBody.toString(2));
+  private static String createJob(
+    MBlastJobRequest newJobRequestBody,
+    String multiBlastServiceUrl,
+    TwoTuple<String,String> authHeader
+  ) throws PluginModelException {
+    var jobsEndpointUrl = multiBlastServiceUrl + "/jobs";
+    var requestBody = JsonUtil.toJsonNode(newJobRequestBody).toString();
+
+    LOG.info("Requesting new multi-blast job at {} with JSON body: {}", jobsEndpointUrl, requestBody);
 
     // make new job request
-    try (CloseableResponse newJobResponse = ClientUtil.makeRequest(
-        jobsEndpointUrl, HttpMethod.POST, Optional.of(newJobRequestBody), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(jobsEndpointUrl))
+          .setHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+          .setHeader(authHeader.getFirst(), authHeader.getSecond())
+          .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
 
-      String responseBody = ClientUtil.readSmallResponseBody(newJobResponse);
+      if (response.statusCode() == 200)
+        return getString(Jackson.readTree(response.body()), "jobID");
 
-      if (newJobResponse.getStatus() == 200) {
-        // success!  return job ID
-        return new JSONObject(responseBody).getString("jobId");
-      }
-
-      if (Family.CLIENT_ERROR.equals(newJobResponse.getStatusInfo().getFamily())) {
-        // error implying bad parameters
+      if (isClientError(response))
         throw new BlastServiceBadRequestException(
-            "Multi-Blast service job request returned " + newJobResponse.getStatus() + NL + responseBody);
-      }
+            "Multi-Blast service job request returned " + response.statusCode() + NL + response.body());
 
       // other error
       throw new PluginModelException("Unexpected response from multi-blast " +
-          "service while requesting new job: " + newJobResponse.getStatus() + NL + responseBody);
+          "service while requesting new job: " + response.statusCode() + NL + response.body());
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
 
-  private static String createReport(JSONObject newReportRequestBody, String multiBlastServiceUrl, TwoTuple<String,String> authHeader) throws PluginModelException {
-    String reportsEndpointUrl = multiBlastServiceUrl + "/reports";
-    LOG.info("Requesting new multi-blast report at " + reportsEndpointUrl + " with JSON body: " + newReportRequestBody.toString(2));
+  private static boolean isClientError(HttpResponse<?> response) {
+    return response.statusCode() >= 400 && response.statusCode() < 500;
+  }
+
+  private static String createReport(
+    MBlastReportRequest newReportRequestBody,
+    String multiBlastServiceUrl,
+    TwoTuple<String,String> authHeader
+  ) throws PluginModelException {
+    var reportsEndpointUrl = multiBlastServiceUrl + "/reports";
+    var requestBody = JsonUtil.toJsonNode(newReportRequestBody).toString();
+
+    LOG.info(
+      "Requesting new multi-blast report at {} with JSON body: {}",
+      reportsEndpointUrl,
+      requestBody
+    );
 
     // make new report request
-    try (CloseableResponse newReportResponse = ClientUtil.makeRequest(
-        reportsEndpointUrl, HttpMethod.POST, Optional.of(newReportRequestBody), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(reportsEndpointUrl))
+          .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+          .header(HttpHeaders.CONTENT_TYPE, "application/json")
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
 
-      String responseBody = ClientUtil.readSmallResponseBody(newReportResponse);
-
-      if (newReportResponse.getStatus() == 200) {
-        // success!  return report ID
-        return new JSONObject(responseBody).getString("reportID");
-      }
+      if (response.statusCode() == 200)
+        return getString(Jackson.readTree(response.body()), "reportID");
 
       throw new PluginModelException("Unexpected response from multi-blast " +
-          "service while requesting new report: " + newReportResponse.getStatus() + NL + responseBody);
+          "service while requesting new report: " + response.statusCode() + NL + response.body());
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
 
   private static void rerunJob(String multiBlastServiceUrl, String jobId, TwoTuple<String,String> authHeader) throws PluginModelException {
     String jobsIdEndpointUrl = multiBlastServiceUrl + "/jobs/" + jobId;
-    LOG.info("Rerunning expired multi-blast job at " + jobsIdEndpointUrl + " with job id " + jobId);
+    LOG.info("Rerunning expired multi-blast job at {} with job id {}", jobsIdEndpointUrl, jobId);
 
     // make rerun job request
-    try (CloseableResponse rerunJobResponse = ClientUtil.makeRequest(
-        jobsIdEndpointUrl, HttpMethod.POST, Optional.of(new JSONObject()), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(jobsIdEndpointUrl))
+          .POST(HttpRequest.BodyPublishers.noBody())
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
 
-      String responseBody = ClientUtil.readSmallResponseBody(rerunJobResponse);
-
-      if (!rerunJobResponse.getStatusInfo().getFamily().equals(Family.SUCCESSFUL)) {
+      if (response.statusCode() != 200 && response.statusCode() != 204) {
         throw new PluginModelException("Unexpected response from multi-blast " +
-            "service while rerunning job: " + rerunJobResponse.getStatus() + NL + responseBody);
+            "service while rerunning job: " + response.statusCode() + NL + response.body());
       }
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
   }
 
   private static void rerunReport(String multiBlastServiceUrl, String reportId, TwoTuple<String,String> authHeader) throws PluginModelException {
     String reportsIdEndpointUrl = multiBlastServiceUrl + "/reports/" + reportId;
-    LOG.info("Rerunning expired multi-blast report at " + reportsIdEndpointUrl + " with report id " + reportId);
+    LOG.info("Rerunning expired multi-blast report at {} with report id {}", reportsIdEndpointUrl, reportId);
 
     // make rerun report request
-    try (CloseableResponse rerunReportResponse = ClientUtil.makeRequest(
-        reportsIdEndpointUrl, HttpMethod.POST, Optional.of(new JSONObject()), new MapBuilder<String,String>(authHeader).toMap())) {
+    try {
+      var response = HTTP_CLIENT.send(
+        HttpRequest.newBuilder(URI.create(reportsIdEndpointUrl))
+          .POST(HttpRequest.BodyPublishers.noBody())
+          .header(authHeader.getFirst(), authHeader.getSecond())
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      );
 
-      String responseBody = ClientUtil.readSmallResponseBody(rerunReportResponse);
-
-      if (!rerunReportResponse.getStatusInfo().getFamily().equals(Family.SUCCESSFUL)) {
+      if (response.statusCode() != 200 && response.statusCode() != 204) {
         throw new PluginModelException("Unexpected response from multi-blast " +
-            "service while rerunning report: " + rerunReportResponse.getStatus() + NL + responseBody);
+          "service while rerunning report: " + response.statusCode() + NL + response.body());
       }
     }
-    catch (IOException e) {
+    catch (InterruptedException | IOException e) {
       throw new PluginModelException("Unable to read response body from service response.", e);
     }
+  }
+
+  @SuppressWarnings("SameParameterValue")
+  private static String getString(JsonNode json, String key, String fallback) {
+    var res = getString(json, key);
+    return res == null ? fallback : res;
+  }
+
+  private static String getString(JsonNode json, String key) {
+    var node = json.get(key);
+    return node == null ? null : node.textValue();
   }
 }

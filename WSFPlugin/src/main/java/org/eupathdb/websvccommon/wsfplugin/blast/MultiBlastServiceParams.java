@@ -1,25 +1,27 @@
 package org.eupathdb.websvccommon.wsfplugin.blast;
 
-import java.util.Arrays;
-import java.util.Map;
+import java.util.*;
+import java.util.function.Function;
 
 import org.apache.log4j.Logger;
 import org.gusdb.fgputil.FormatUtil;
 import org.gusdb.fgputil.FormatUtil.Style;
 import org.gusdb.fgputil.Tuples.TwoTuple;
 import org.gusdb.wsf.plugin.PluginUserException;
-import org.json.JSONArray;
-import org.json.JSONObject;
+import org.veupathdb.lib.blast.BlastTool;
+import org.veupathdb.lib.blast.field.*;
 
 /**
  * Encapsulates the processing and conversion of multi-blast service params from
  * their WDK question form representation into the JSON accepted by the
  * multi-blast service.
- *
+ * <p>
  * NOTE: This is a transcription of the logic contained in:
- * 
+ * <p>
+ * <pre>
  *     web-multi-blast/blob/main/src/lib/utils/params.ts
- * 
+ * </pre>
+ * <p>
  * The two must be kept in sync so unexpected results are not shown in the
  * multi-blast UI and so users get the same result when they export to WDK.
  *
@@ -81,73 +83,49 @@ public class MultiBlastServiceParams {
    * @param params internal values of params
    * @return json object to be passed as "config" to multi-blast service
    */
-  public static JSONObject buildNewJobRequestConfigJson(Map<String, String> params) throws PluginUserException {
-
+  public static MBlastJobConfig buildNewJobRequestConfig(Map<String, String> params) throws PluginUserException {
     LOG.info("Converting the following param values to JSON: " + FormatUtil.prettyPrint(params, Style.MULTI_LINE));
 
-    var requestConfig = buildBaseRequestConfig(params);
+    var selectedTool = Objects.requireNonNull(ifParamNotNull(params, BLAST_ALGORITHM_PARAM_NAME, BlastTool::fromString));
 
-    var selectedTool = getNormalizedParamValue(params, BLAST_ALGORITHM_PARAM_NAME);
+    var requestConfig = buildBaseRequestConfig(params)
+      .setTool(selectedTool);
 
-    var filterLowComplexityRegionsStr = getNormalizedParamValue(params, FILTER_LOW_COMPLEX_PARAM_NAME);
-    //LOG.debug("\n****filterLowComplexityRegionsStr: ---" + filterLowComplexityRegionsStr + "---");
-    var filterLowComplexityRegions = !filterLowComplexityRegionsStr.startsWith("no");
-    //LOG.debug("\n****filterLowComplexityRegions: ---" + filterLowComplexityRegions + "---");
-
-    if (!selectedTool.equals("tblastx")) {
+    if (selectedTool != BlastTool.TBlastX) {
       var gapCostsStr = getNormalizedParamValue(params, GAP_COSTS_PARAM_NAME);
-
       var gapCostsPair = paramValueToIntPair(gapCostsStr);
-      var gapOpen = gapCostsPair.getFirst();
-      var gapExtend = gapCostsPair.getSecond();
 
       requestConfig
-        .put("gapOpen", gapOpen)
-        .put("gapExtend", gapExtend);
+        .setGapOpen(gapCostsPair.getFirst())
+        .setGapExtend(gapCostsPair.getSecond());
     }
 
-    if (selectedTool.equals("blastn")) {
+    if (selectedTool == BlastTool.BlastN) {
       var matchMismatchStr = getNormalizedParamValue(params, MATCH_MISMATCH_SCORE);
       var rewardPenaltyPair = paramValueToIntPair(matchMismatchStr);
-      var reward = rewardPenaltyPair.getFirst();
-      var penalty = rewardPenaltyPair.getSecond();
 
       return requestConfig
-        .put("tool", selectedTool)
-        .put("task", selectedTool)
-        .put("dust", filterLowComplexityRegions ? "yes" : "no")
-        .put("reward", reward)
-        .put("penalty", penalty);
+        .setTask(BlastNTask.BlastN)
+        .setDust(ifParamNotNull(params, FILTER_LOW_COMPLEX_PARAM_NAME, Dust::fromString))
+        .setReward(rewardPenaltyPair.getFirst().longValue())
+        .setPenalty(rewardPenaltyPair.getSecond());
     }
 
-    var scoringMatrix = getNormalizedParamValue(params, SCORING_MATRIX_PARAM_NAME);
-    requestConfig.put("matrix", scoringMatrix);
+    requestConfig
+      .setMatrix(ifParamNotNull(params, SCORING_MATRIX_PARAM_NAME, ScoringMatrix::fromString))
+      .setSeg(ifParamNotNull(params, FILTER_LOW_COMPLEX_PARAM_NAME, Seg::fromString));
 
-    requestConfig.put("seg", filterLowComplexityRegions ? "yes" : "no");
-    //LOG.debug("\n****seg: ---" + (filterLowComplexityRegions ? "yes" : "no") + "---");
+    if (selectedTool == BlastTool.TBlastX)
+      return requestConfig.setQueryGeneticCode(1);
 
-    if (selectedTool.equals("tblastx")) {
-      return requestConfig
-        .put("tool", selectedTool)
-        .put("queryGeneticCode", 1);
-    }
+    requestConfig.setCompBasedStats(ifParamNotNull(params, COMP_ADJUST_PARAM_NAME, CompBasedStatsLong::fromString));
 
-    var compBasedStats = getNormalizedParamValue(params, COMP_ADJUST_PARAM_NAME);
-    requestConfig.put("compBasedStats", compBasedStats);
-
-    if (selectedTool.equals("blastp") || selectedTool.equals("tblastn")) {
-      return requestConfig
-        .put("tool", selectedTool)
-        .put("task", selectedTool);
-    }
-
-    if (selectedTool.equals("blastx")) {
-      return requestConfig
-        .put("tool", selectedTool)
-        .put("queryGeneticCode", 1);
-    }
-
-    throw new PluginUserException("The tool type '" + selectedTool + "' is unsupported");
+    return switch (selectedTool) {
+      case BlastP  -> requestConfig.setTask(BlastPTask.BlastP);
+      case TBlastN -> requestConfig.setTask(TBlastNTask.TBlastN);
+      case BlastX  -> requestConfig.setQueryGeneticCode(1);
+      default      -> throw new PluginUserException("The tool type '" + selectedTool + "' is unsupported");
+    };
   }
 
   /**
@@ -158,7 +136,7 @@ public class MultiBlastServiceParams {
    * @param params internal values of params
    * @return json array to be passed as "targets" to multi-blast service
    */
-  public static JSONArray buildNewJobRequestTargetJson(Map<String, String> params) {
+  public static List<MBlastJobRequest.JobTarget> buildNewJobRequestTargetList(Map<String, String> params) {
     var organismsStr = params.get(BLAST_DATABASE_ORGANISM_PARAM_NAME);
     var wdkTargetType = params.get(BLAST_DATABASE_TYPE_PARAM_NAME);
 
@@ -167,66 +145,41 @@ public class MultiBlastServiceParams {
     // FIXME This is a carryover of some hardcoding from
     // ApiCommonWebService's EuPathBlastCommandFormatter.
     // We should explore more permanent solutions.
-    var blastTargetType = wdkTargetType.equals("PopSet")
+    var blastTargetType = "PopSet".equals(wdkTargetType)
       ? "Isolates"
       : wdkTargetType;
 
-    var targets = Arrays.stream(organisms)
-      .filter(organism -> !(organism.equals("-1") || organism.length() <= 3))
-      .map(leafOrganism ->
-        new JSONObject()
-          .put("organism", leafOrganism)
-          .put("target", leafOrganism + blastTargetType)
-      )
-      .toArray();
-
-    return new JSONArray(targets);
+    return Arrays.stream(organisms)
+      .filter(organism -> !(organism.length() <= 3))
+      .map(leafOrganism -> new MBlastJobRequest.JobTarget(leafOrganism, leafOrganism + blastTargetType))
+      .toList();
   }
 
-  private static JSONObject buildBaseRequestConfig(Map<String, String> params) {
-    var query = getNormalizedParamValue(params, BLAST_QUERY_SEQUENCE_PARAM_NAME);
-    var eValue = getNormalizedParamValue(params, EXPECTATION_VALUE_PARAM_NAME);
-    var numQueryResultsStr = getNormalizedParamValue(params, NUM_QUERY_RESULTS_PARAM_NAME);
-    var maxMatchesStr = getNormalizedParamValue(params, MAX_MATCHES_QUERY_RANGE_PARAM_NAME);
-    var wordSizeStr = getNormalizedParamValue(params, WORD_SIZE_PARAM_NAME);
-    var softMaskStr = getNormalizedParamValue(params, SOFT_MASK_PARAM_NAME);
-    var lowerCaseMaskStr = getNormalizedParamValue(params, LOWER_CASE_MASK_PARAM_NAME);
+  private static MBlastJobConfig buildBaseRequestConfig(Map<String, String> params) {
+    var requestConfig = new MBlastJobConfig()
+      .setQuery(getNormalizedParamValue(params, BLAST_QUERY_SEQUENCE_PARAM_NAME))
+      .setEValue(getNormalizedParamValue(params, EXPECTATION_VALUE_PARAM_NAME))
+      .setMaxTargetSeqs(ifParamNotNull(params, NUM_QUERY_RESULTS_PARAM_NAME, Long::parseLong))
+      .setWordSize(ifParamNotNull(params, WORD_SIZE_PARAM_NAME, Long::parseLong))
+      .setSoftMasking(ifParamNotNull(params, SOFT_MASK_PARAM_NAME, Boolean::parseBoolean))
+      .setLowercaseMasking(ifParamNotNull(params, LOWER_CASE_MASK_PARAM_NAME, Boolean::parseBoolean))
+      .setOutFormat(new BlastReportFormat(FormatType.SingleFileBlastJSON));
 
-    // FIXME Should have the outFormat be "pairwise". This will
-    // require fixes to the multi-blast service. (The multi-blast service
-    // currently doesn't allow "maxTargetSeqs" to be passed when the default
-    // report format is "pairwise".)
-    var outFormat = new JSONObject().put("format", "single-file-json");
+    var maxMatches = ifParamNotNull(params, MAX_MATCHES_QUERY_RANGE_PARAM_NAME, Long::parseLong);
 
-    var baseConfig =
-      new JSONObject()
-        .put("query", query)
-        .put("eValue", eValue)
-        .put("maxTargetSeqs", paramValueToInt(numQueryResultsStr))
-        .put("wordSize", paramValueToInt(wordSizeStr))
-        .put("softMasking", paramValueToBoolean(softMaskStr))
-        .put("lcaseMasking", paramValueToBoolean(lowerCaseMaskStr))
-        .put("outFormat", outFormat);
+    if (maxMatches != null && maxMatches >= 1)
+      requestConfig.setMaxHSPs(maxMatches);
 
-    var maxMatches = paramValueToInt(maxMatchesStr);
-
-    if (maxMatches >= 1) {
-      baseConfig.put("maxHSPs", paramValueToInt(maxMatchesStr));
-    }
-
-    return baseConfig;
+    return requestConfig;
   }
 
   private static String getNormalizedParamValue(Map<String, String> params, String paramName) {
     return params.get(paramName).replaceAll("^'|'$", "");
   }
 
-  private static boolean paramValueToBoolean(String paramValue) {
-    return paramValue.equals("true");
-  }
-
-  private static int paramValueToInt(String paramValue) {
-    return Integer.parseInt(paramValue);
+  private static <T> T ifParamNotNull(Map<String, String> params, String key, Function<String, T> fn) {
+    var param = params.get(key);
+    return param == null ? null : fn.apply(param.replaceAll("^'|'$", ""));
   }
 
   private static TwoTuple<Integer, Integer> paramValueToIntPair(String paramValue) {

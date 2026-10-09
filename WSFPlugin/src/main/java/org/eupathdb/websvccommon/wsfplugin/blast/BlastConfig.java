@@ -20,23 +20,17 @@ public class BlastConfig {
 
   protected final Properties _properties;
 
-  /**
-   * @throws PluginModelException  
-   */
   public BlastConfig(Properties properties) throws PluginModelException {
     _properties = properties;
     validate();
   }
 
-  /**
-   * @throws PluginModelException  
-   */
   protected void validate() throws PluginModelException {
     // subclasses may implement
   }
 
   public long getTimeout() {
-    return Long.valueOf(_properties.getProperty(FIELD_TIMEOUT, DEFAULT_TIMEOUT));
+    return Long.parseLong(_properties.getProperty(FIELD_TIMEOUT, DEFAULT_TIMEOUT));
   }
 
   public String getSourceIdRegex() {

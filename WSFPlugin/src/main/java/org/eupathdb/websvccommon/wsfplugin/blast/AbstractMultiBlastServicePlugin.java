@@ -29,13 +29,7 @@ import org.gusdb.wdk.model.Utilities;
 import org.gusdb.wdk.model.WdkModel;
 import org.gusdb.wdk.model.WdkModelException;
 import org.gusdb.wdk.model.record.RecordClass;
-import org.gusdb.wsf.plugin.AbstractPlugin;
-import org.gusdb.wsf.plugin.DelayedResultException;
-import org.gusdb.wsf.plugin.Plugin;
-import org.gusdb.wsf.plugin.PluginModelException;
-import org.gusdb.wsf.plugin.PluginRequest;
-import org.gusdb.wsf.plugin.PluginResponse;
-import org.gusdb.wsf.plugin.PluginUserException;
+import org.gusdb.wsf.plugin.*;
 import org.veupathdb.lib.blast.field.FormatType;
 
 public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
@@ -217,31 +211,32 @@ public abstract class AbstractMultiBlastServicePlugin extends AbstractPlugin {
         HttpResponse.BodyHandlers.ofInputStream()
       );
 
-      if (mblastResponse.statusCode() != 200) {
-        var responseJson = Jackson.readTree(mblastResponse.body());
+      try (var body = mblastResponse.body()) {
+        if (mblastResponse.statusCode() != 200) {
+          var responseJson = Jackson.readTree(body);
 
-        if (
-          CONTENT_MAX_LENGTH_EXCEEDED_STATUS.equals(getString(responseJson, "status")) &&
-          CONTENT_MAX_LENGTH_EXCEEDED_MESSAGE.equals(getString(responseJson, "message"))
-        ) {
-          throw new BlastServiceBadRequestException(
-            "We're sorry, but we cannot handle BLAST results larger than " +
+          if (
+            CONTENT_MAX_LENGTH_EXCEEDED_STATUS.equals(getString(responseJson, "status")) &&
+            CONTENT_MAX_LENGTH_EXCEEDED_MESSAGE.equals(getString(responseJson, "message"))
+          ) {
+            throw new BlastServiceBadRequestException(
+              "We're sorry, but we cannot handle BLAST results larger than " +
               MAX_REPORT_SIZE_BYTES/1000000 + "MB. \nIf you see the option to download your result, you may do so. \nTo reduce the result size, you " +
               "could decrease V=B or the Expectation value, turn on the Low " +
-              "Complexity filter, or decrease the number of target organisms selected.");
+              "Complexity filter, or decrease the number of target organisms selected."
+            );
+          }
+
+          throw new PluginModelException("Unexpected response from multi-blast " +
+            "service while fetching report results (reportId=" + reportId + "): " +
+            mblastResponse.statusCode() + FormatUtil.NL + responseJson);
         }
 
-        throw new PluginModelException("Unexpected response from multi-blast " +
-          "service while fetching report results (reportId=" + reportId + "): " +
-          mblastResponse.statusCode() + FormatUtil.NL + responseJson);
-      }
-
-      // request appears to be successful; read, parse and write result stream data into plugin response
-      try (var resultStream = mblastResponse.body()) {
+        // request appears to be successful; read, parse and write result stream data into plugin response
         var message = _resultFormatter.formatResult(
           pluginResponse,
           orderedColumns,
-          resultStream,
+          body,
           recordClass,
           dbType,
           wdkModel

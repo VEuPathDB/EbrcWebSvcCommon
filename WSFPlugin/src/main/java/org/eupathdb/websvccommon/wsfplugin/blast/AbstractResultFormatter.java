@@ -3,7 +3,8 @@ package org.eupathdb.websvccommon.wsfplugin.blast;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
 import org.eupathdb.common.model.ProjectMapper;
 import org.eupathdb.websvccommon.wsfplugin.EuPathServiceException;
 import org.gusdb.fgputil.runtime.GusHome;
@@ -22,7 +23,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
   private static final String SCORE_REGEX = "(\\S+)\\s+\\S+$";
   private static final String EVALUE_REGEX = "\\s+(\\S+)$";
 
-  private static final Logger logger = Logger.getLogger(AbstractResultFormatter.class);
+  private static final Logger logger = LogManager.getLogger(AbstractResultFormatter.class);
 
   private ProjectMapper projectMapper;
   private BlastConfig config;
@@ -56,7 +57,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
   protected int[] findScore(String summaryLine) {
     return findField(summaryLine, SCORE_REGEX);
   }
-  
+
   protected int[] findEvalue(String summaryLine) {
     return findField(summaryLine, EVALUE_REGEX);
   }
@@ -68,8 +69,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
       // the match is located at group of the given index
       return new int[] { matcher.start(1), matcher.end(1) };
     } else {
-      logger.warn("Couldn't find pattern \"" + regex + "\" in defline \""
-          + defline + "\"");
+      logger.warn("Couldn't find pattern \"{}\" in defline \"{}\"", regex, defline);
       return null;
     }
   }
@@ -83,14 +83,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
   }
 
   /**
-   * 
-   * @param recordClass
-   * @param projectId
-   * @param sourceId
    * @param defline may be used in subclass
-   * @return
-   * @throws EuPathServiceException
-   * @throws  
    */
   protected String getIdUrl(RecordClass recordClass, String projectId,
       String sourceId, String defline) throws EuPathServiceException {
@@ -112,7 +105,7 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
           .getRecordUrl(recordClassFullName, projectId, sourceId);
     }
     else {
-      String recordClassUrlSegment = wdkModel.getRecordClassByFullName(recordClassFullName).get().getUrlSegment();
+      String recordClassUrlSegment = wdkModel.getRecordClassByFullName(recordClassFullName).orElseThrow().getUrlSegment();
       return getWebappBaseUrl(wdkModel) +
           "/record" +
           "/" + recordClassUrlSegment +
@@ -123,35 +116,26 @@ public abstract class AbstractResultFormatter implements ResultFormatter {
   /**
    * Insert a given url to the specified location, and use the html link tag to
    * wrap around the content at the location. No anchor is added to the link.
-   * 
-   * @param content
-   * @param location
-   * @param url
-   * @return
    */
   protected String insertUrl(String content, int[] location, String url) {
     return insertUrl(content, location, url, null);
   }
-  
+
 
   /**
    * Insert a given url to the specified location, and use the html link tag to
    * wrap around the content at the location.
-   * 
-   * @param content
-   * @param location
-   * @param url
+   *
    * @param anchor  an anchor to attach to the link; if the anchor is null, it will be ignored.
-   * @return
    */
   protected String insertUrl(String content, int[] location, String url, String anchor) {
     StringBuilder buffer = new StringBuilder();
-    buffer.append(content.substring(0, location[0]));
+    buffer.append(content, 0, location[0]);
     buffer.append("<a ");
-    if (anchor != null) 
+    if (anchor != null)
       buffer.append(" name=\"").append(anchor).append("\" ");
     buffer.append(" href=\"").append(url).append("\">");
-    buffer.append(content.substring(location[0], location[1]));
+    buffer.append(content, location[0], location[1]);
     buffer.append("</a>").append(content.substring(location[1]));
     return buffer.toString();
   }

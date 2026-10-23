@@ -37,14 +37,14 @@ public class NcbiBlastConfig extends BlastConfig {
 
     // create temp path if it doesn't exist
     File tempDir = getTempDir();
-    if (!tempDir.exists())
-      tempDir.mkdirs();
+    //noinspection ResultOfMethodCallIgnored
+    tempDir.mkdirs();
 
     // timeout has to be positive
     long timeout = getTimeout();
     if (timeout < 1)
       throw new PluginModelException("Invalid timeout for blast: " + timeout
-          + " seconds. The value must be a positive integer.");
+        + " seconds. The value must be a positive integer.");
   }
 
   public File getTempDir() {

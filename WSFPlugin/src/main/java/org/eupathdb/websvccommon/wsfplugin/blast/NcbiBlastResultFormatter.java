@@ -7,16 +7,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.regex.Matcher;
 
 import org.apache.log4j.Logger;
-//import org.eupathdb.common.model.ProjectMapper;
 import org.eupathdb.websvccommon.wsfplugin.EuPathServiceException;
-import org.gusdb.fgputil.FormatUtil;
 import org.gusdb.wdk.model.WdkModel;
 import org.gusdb.wdk.model.record.RecordClass;
 import org.gusdb.wsf.plugin.PluginModelException;
@@ -66,7 +61,7 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       while ((line = reader.readLine()) != null) {
         String lineTrimmed = line.trim();
         if (inSummary) { // in summary section
-          if (lineTrimmed.length() == 0) {
+          if (lineTrimmed.isEmpty()) {
             // found the end of summary section, no need to output empty line,
             // since it's already been written to the content.
             inSummary = false;
@@ -100,14 +95,14 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
           if (lineTrimmed.startsWith("Sequences producing significant alignments")) {
             // found the start of the summary section
             inSummary = true;
-            content.append(NL + MACRO_SUMMARY + NL + NL);
+            content.append(NL).append(MACRO_SUMMARY).append(NL).append(NL);
             // read and skip an empty line
             reader.readLine();
           }
           else if (line.startsWith(">")) {
             // found the first alignment section
             inAlignment = true;
-            content.append(NL + MACRO_ALIGNMENT + NL + NL);
+            content.append(NL).append(MACRO_ALIGNMENT).append(NL).append(NL);
             // add the line to the alignment
             alignment.append(line).append(NL);
           }
@@ -136,9 +131,11 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       for (String endGrep : DB_LINES_END_GREPS) {
         if (line.contains(endGrep) || line.trim().isEmpty()) {
           outOfDb = true;
+          break;
         }
       }
-      if (outOfDb) break;
+      if (outOfDb)
+        break;
       // appending DB lines but not last line read
       unparsedDbs.append(line.trim());
     }
@@ -147,9 +144,9 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
     for (String file : files) {
       filenames.add(Paths.get(file.trim()).getFileName().toString());
     }
-    return new StringBuilder(DB_LINES_START_GREP).append(NL)
-        .append(FormatUtil.join(filenames.toArray(), ";" + NL)).append(NL)
-        .append(line).append(NL).toString();
+    return DB_LINES_START_GREP + NL
+      + String.join(";" + NL, filenames) + NL
+      + line + NL;
   }
 
   protected void processAlignment(PluginResponse response, String[] columns, RecordClass recordClass, String dbType,
@@ -177,7 +174,7 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
     String summary = summaries.get(sourceId);
     String evalue = getField(summary, findEvalue(summary));
     int[] scoreLocation = findScore(summary);
-    float score = Float.valueOf(getField(summary, scoreLocation));
+    float score = Float.parseFloat(getField(summary, scoreLocation));
 
     // insert a link to the alignment section - need to do it before the id link.
     summary = insertUrl(summary, scoreLocation, "#" + sourceId);
@@ -186,25 +183,22 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
 
     // insert the jbrowse link if the DB type is genome
     if (dbType != null && dbType.equals(DB_TYPE_GENOME))
-      alignment = insertJbrowseLink(model, alignment, projectId, sourceId);
+      alignment = insertJbrowseLink(model, alignment, sourceId);
 
     // format and write the row
     String[] row = formatRow(columns, projectId, sourceId, summary, alignment, evalue, score, defline);
     response.addRow(row);
   }
 
-  private String insertJbrowseLink(WdkModel model, String alignment, String projectId, String sourceId) {
-    // logger.debug("insertJBrowseLink: alignment: ********\n" + alignment + "\n*******\n");
+  private String insertJbrowseLink(WdkModel model, String alignment, String sourceId) {
     StringBuilder buffer = new StringBuilder();
     String[] pieces = alignment.split("Strand=");
     for (String piece : pieces) {
-      //if (buffer.length() > 0)
-      //  buffer.append("Strand = ");
       Matcher matcher = SUBJECT_PATTERN.matcher(piece);
       int min = Integer.MAX_VALUE, max = Integer.MIN_VALUE;
       while (matcher.find()) {
-        int start = Integer.valueOf(matcher.group(1));
-        int end = Integer.valueOf(matcher.group(2));
+        int start = Integer.parseInt(matcher.group(1));
+        int end = Integer.parseInt(matcher.group(2));
         if (min > start)
           min = start;
         if (min > end)
@@ -217,16 +211,18 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
       // check if any subject has been found
       if (min <= max) {
         Map<String, String> props = model.getProperties();
-        String jbrowseUrl = 
+        String jbrowseUrl =
             props.get("JBROWSE_WEBPAGE_URL");
-        String jbrowseServiceUrl = 
+        String jbrowseServiceUrl =
             props.get("JBROWSE_SERVICE_URL");
         jbrowseUrl += "?data=" + jbrowseServiceUrl + "/bySequenceId/" + sourceId +
             "/&loc=" + sourceId + ":" + min + "-" + max + "&tracks=gene";
-        buffer.append("\n<a href=\"" + jbrowseUrl + "\"> <B><font color=\"red\">" +
-            "Link to Genome Browser</font></B></a>,   Strand = ");
+        buffer.append("\n<a href=\"")
+          .append(jbrowseUrl)
+          .append("\"> <B><font color=\"red\">")
+          .append("Link to Genome Browser</font></B></a>,   Strand = ");
       }
-      else if (buffer.length() > 0) {
+      else if (!buffer.isEmpty()) {
         buffer.append("Strand = ");
       }
       buffer.append(piece);
@@ -240,50 +236,32 @@ public class NcbiBlastResultFormatter extends AbstractResultFormatter {
     String evalueExp = (evalueParts.length == 2) ? evalueParts[1] : "0";
     String evalueMant = evalueParts[0];
     // sometimes the mant part is empty if the blast score is very high, assign a default 1.
-    if (evalueMant.length() == 0)
+    if (evalueMant.isEmpty())
       evalueMant = "1";
     String[] row = new String[columns.length];
     for (int i = 0; i < columns.length; i++) {
-      if (columns[i].equals(COLUMN_ALIGNMENT)) {
-        row[i] = alignment;
-      }
-      else if (columns[i].equals(COLUMN_EVALUE_EXP)) {
-        row[i] = evalueExp;
-      }
-      else if (columns[i].equals(COLUMN_EVALUE_MANT)) {
-        row[i] = evalueMant;
-      }
-      else if (columns[i].equals(COLUMN_IDENTIFIER)) {
-        row[i] = sourceId;
-      }
-      else if (columns[i].equals(COLUMN_PROJECT_ID)) {
-        row[i] = projectId;
-      }
-      else if (columns[i].equals(COLUMN_SCORE)) {
-        row[i] = Float.toString(score);
-      }
-      else if (columns[i].equals(COLUMN_SUMMARY)) {
-        row[i] = summary;
-      }
-      else {
-        if (!assignExtraColumns(i,row,columns,defline)) {
-          throw new EuPathServiceException("Unsupported blast result column: " + columns[i]);
+      switch (columns[i]) {
+        case COLUMN_ALIGNMENT -> row[i] = alignment;
+        case COLUMN_EVALUE_EXP -> row[i] = evalueExp;
+        case COLUMN_EVALUE_MANT -> row[i] = evalueMant;
+        case COLUMN_IDENTIFIER -> row[i] = sourceId;
+        case COLUMN_PROJECT_ID -> row[i] = projectId;
+        case COLUMN_SCORE -> row[i] = Float.toString(score);
+        case COLUMN_SUMMARY -> row[i] = summary;
+        default -> {
+          if (!assignExtraColumns(i, row, columns, defline)) {
+            throw new EuPathServiceException("Unsupported blast result column: " + columns[i]);
+          }
         }
       }
     }
     return row;
   }
 
-  /** subclasses will add custom classes
-   * 
-   * @param index
-   * @param row
-   * @param columns
-   * @param defline
-   * @return
+  /**
+   * subclasses will add custom classes
    */
   protected boolean assignExtraColumns(int index, String[] row, String[] columns, String defline) {
     return false;
   }
-
 }

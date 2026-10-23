@@ -27,7 +27,7 @@ public abstract class NcbiBlastCommandFormatter {
       File outFile) throws PluginUserException, PluginModelException {
 
     // now prepare the commandline
-    List<String> cmds = new ArrayList<String>();
+    List<String> cmds = new ArrayList<>();
     //cmds.add(config.getBlastPath() + "blastall");
 
     // get the algorithm
@@ -59,22 +59,29 @@ public abstract class NcbiBlastCommandFormatter {
     cmds.add("4");
 
     for (String paramName : params.keySet()) {
-      if (paramName.equals(AbstractBlastPlugin.PARAM_EVALUE)) {
-        cmds.add("-evalue");
-        cmds.add(params.get(paramName));
-      } else if (paramName.equals(AbstractBlastPlugin.PARAM_MAX_SUMMARY)) {
-        String alignments = params.get(paramName);
-        cmds.add("-num_alignments");
-        cmds.add(alignments);
-        cmds.add("-num_descriptions");
-        cmds.add(alignments);
-      } else if (paramName.equals(AbstractBlastPlugin.PARAM_FILTER)) {
-        if ( blastApp.equals("blastn") ) cmds.add("-dust");
-        else cmds.add("-seg");
-        if (params.get(paramName).equals("yes")) {    //do not trust default
-          cmds.add("yes"); 
+      switch (paramName) {
+        case AbstractBlastPlugin.PARAM_EVALUE -> {
+          cmds.add("-evalue");
+          cmds.add(params.get(paramName));
         }
-        else 	cmds.add("no"); 
+        case AbstractBlastPlugin.PARAM_MAX_SUMMARY -> {
+          String alignments = params.get(paramName);
+          cmds.add("-num_alignments");
+          cmds.add(alignments);
+          cmds.add("-num_descriptions");
+          cmds.add(alignments);
+        }
+        case AbstractBlastPlugin.PARAM_FILTER -> {
+          if (blastApp.equals("blastn"))
+            cmds.add("-dust");
+          else
+            cmds.add("-seg");
+
+          if (params.get(paramName).equals("yes")) {    //do not trust default
+            cmds.add("yes");
+          } else
+            cmds.add("no");
+        }
       }
     }
 

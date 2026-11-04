@@ -188,7 +188,13 @@ public class MultiBlastServiceParams {
 
   private static <T> T ifParamNotEmpty(Map<String, String> params, String key, Function<String, T> fn) {
     var param = params.get(key);
-    return (param == null || param.isBlank()) ? null : fn.apply(normalizeParamString(param));
+
+    if (param == null)
+      return null;
+
+    param = normalizeParamString(param);
+
+    return param.isBlank() ? null : fn.apply(param);
   }
 
   private static TwoTuple<Integer, Integer> paramValueToIntPair(String paramValue) {

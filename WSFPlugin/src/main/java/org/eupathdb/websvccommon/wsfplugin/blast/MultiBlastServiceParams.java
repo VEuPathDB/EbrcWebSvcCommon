@@ -86,7 +86,7 @@ public class MultiBlastServiceParams {
   public static MBlastJobConfig buildNewJobRequestConfig(Map<String, String> params) throws PluginUserException {
     LOG.info("Converting the following param values to JSON: " + FormatUtil.prettyPrint(params, Style.MULTI_LINE));
 
-    var selectedTool = Objects.requireNonNull(ifParamNotNull(params, BLAST_ALGORITHM_PARAM_NAME, BlastTool::fromString));
+    var selectedTool = Objects.requireNonNull(ifParamNotEmpty(params, BLAST_ALGORITHM_PARAM_NAME, BlastTool::fromString));
 
     var requestConfig = buildBaseRequestConfig(params)
       .setTool(selectedTool);
@@ -106,19 +106,19 @@ public class MultiBlastServiceParams {
 
       return requestConfig
         .setTask(BlastNTask.BlastN)
-        .setDust(ifParamNotNull(params, FILTER_LOW_COMPLEX_PARAM_NAME, Dust::fromString))
+        .setDust(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME, Dust::fromString))
         .setReward(rewardPenaltyPair.getFirst().longValue())
         .setPenalty(rewardPenaltyPair.getSecond());
     }
 
     requestConfig
-      .setMatrix(ifParamNotNull(params, SCORING_MATRIX_PARAM_NAME, ScoringMatrix::fromString))
-      .setSeg(ifParamNotNull(params, FILTER_LOW_COMPLEX_PARAM_NAME, Seg::fromString));
+      .setMatrix(ifParamNotEmpty(params, SCORING_MATRIX_PARAM_NAME, ScoringMatrix::fromString))
+      .setSeg(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME, Seg::fromString));
 
     if (selectedTool == BlastTool.TBlastX)
       return requestConfig.setQueryGeneticCode(1);
 
-    requestConfig.setCompBasedStats(ifParamNotNull(params, COMP_ADJUST_PARAM_NAME, CompBasedStatsLong::fromString));
+    requestConfig.setCompBasedStats(ifParamNotEmpty(params, COMP_ADJUST_PARAM_NAME, CompBasedStatsLong::fromString));
 
     return switch (selectedTool) {
       case BlastP  -> requestConfig.setTask(BlastPTask.BlastP);
@@ -173,13 +173,22 @@ public class MultiBlastServiceParams {
     return requestConfig;
   }
 
+  private static String normalizeParamString(String rawValue) {
+    return rawValue.replaceAll("^'|'$", "");
+  }
+
   private static String getNormalizedParamValue(Map<String, String> params, String paramName) {
-    return params.get(paramName).replaceAll("^'|'$", "");
+    return normalizeParamString(params.get(paramName));
   }
 
   private static <T> T ifParamNotNull(Map<String, String> params, String key, Function<String, T> fn) {
     var param = params.get(key);
-    return param == null ? null : fn.apply(param.replaceAll("^'|'$", ""));
+    return param == null ? null : fn.apply(normalizeParamString(param));
+  }
+
+  private static <T> T ifParamNotEmpty(Map<String, String> params, String key, Function<String, T> fn) {
+    var param = params.get(key);
+    return (param == null || param.isBlank()) ? null : fn.apply(normalizeParamString(param));
   }
 
   private static TwoTuple<Integer, Integer> paramValueToIntPair(String paramValue) {

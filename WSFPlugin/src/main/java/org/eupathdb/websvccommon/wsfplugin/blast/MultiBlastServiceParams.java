@@ -106,14 +106,16 @@ public class MultiBlastServiceParams {
 
       return requestConfig
         .setTask(BlastNTask.BlastN)
-        .setDust(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME, Dust::fromString))
+        .setDust(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME,
+          it -> "dust".equals(it) ? Dust.yesDust() : Dust.fromString(it)))
         .setReward(rewardPenaltyPair.getFirst().longValue())
         .setPenalty(rewardPenaltyPair.getSecond());
     }
 
     requestConfig
       .setMatrix(ifParamNotEmpty(params, SCORING_MATRIX_PARAM_NAME, ScoringMatrix::fromString))
-      .setSeg(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME, Seg::fromString));
+      .setSeg(ifParamNotEmpty(params, FILTER_LOW_COMPLEX_PARAM_NAME,
+        it -> "seg".equals(it) ? Seg.getYesSeg() : Seg.fromString(it)));
 
     if (selectedTool == BlastTool.TBlastX)
       return requestConfig.setQueryGeneticCode(1);
